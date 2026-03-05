@@ -1,100 +1,163 @@
+// Firebase Firestore Database Service
+import { db } from "./firebase";
+import {
+  collection,
+  doc,
+  addDoc,
+  setDoc,
+  getDoc,
+  getDocs,
+  deleteDoc,
+  query,
+  where,
+  orderBy,
+  limit as firestoreLimit,
+  Timestamp,
+} from "firebase/firestore";
+import type { User, ChatSession, Page } from "../types";
 
-import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import type { User, ChatSession, Page } from '../types';
-
-const DB_NAME = 'slyntos-ai-db';
-const DB_VERSION = 2; 
-const USERS_STORE = 'users';
-const SESSIONS_STORE = 'chat-sessions';
-
-interface SlyntosDB extends DBSchema {
-  [USERS_STORE]: {
-    key: string;
-    value: User & { username_lower: string; email_lower: string };
-    indexes: { 
-      'username_lower': string;
-      'email_lower': string;
-    };
-  };
-  [SESSIONS_STORE]: {
-    key: string;
-    value: ChatSession & { userId: string; page: Page };
-    indexes: { 'user_page_date': [string, Page, number] };
-  };
-}
-
-let dbPromise: Promise<IDBPDatabase<SlyntosDB>>;
-
-const initDB = () => {
-  if (!dbPromise) {
-    dbPromise = openDB<SlyntosDB>(DB_NAME, DB_VERSION, {
-      upgrade(db, oldVersion, newVersion, transaction) {
-        let usersStore;
-        
-        if (oldVersion < 1) {
-          usersStore = db.createObjectStore(USERS_STORE, { keyPath: 'id' });
-          usersStore.createIndex('username_lower', 'username_lower', { unique: true });
-          const sessionsStore = db.createObjectStore(SESSIONS_STORE, { keyPath: 'id' });
-          sessionsStore.createIndex('user_page_date', ['userId', 'page', 'createdAt'], { unique: false });
-        } else {
-          usersStore = transaction.objectStore(USERS_STORE);
-        }
-
-        if (oldVersion < 2) {
-          if (!usersStore.indexNames.contains('email_lower')) {
-            usersStore.createIndex('email_lower', 'email_lower', { unique: true });
-          }
-        }
-      },
-    });
-  }
-  return dbPromise;
-};
+// Collection names
+const USERS_COLLECTION = "users";
+const SESSIONS_COLLECTION = "chat-sessions";
 
 export const addUser = async (user: User): Promise<void> => {
-  const db = await initDB();
-  const userWithIndex = { 
-    ...user, 
-    username_lower: user.username.toLowerCase(),
-    email_lower: user.email.toLowerCase()
-  };
-  await db.add(USERS_STORE, userWithIndex as any);
+  try {
+    // Use the user ID as the document ID for easy retrieval
+    await setDoc(doc(db, USERS_COLLECTION, user.id), {
+      ...user,
+      username_lower: user.username.toLowerCase(),
+      email_lower: user.email.toLowerCase(),
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+  } catch (error) {
+    console.error("Error adding user:", error);
+    throw new Error("Failed to add user to database");
+  }
 };
 
 export const updateUser = async (user: User): Promise<void> => {
-  const db = await initDB();
-  const userWithIndex = { 
-    ...user, 
-    username_lower: user.username.toLowerCase(),
-    email_lower: user.email.toLowerCase()
-  };
-  await db.put(USERS_STORE, userWithIndex as any);
+  try {
+    await setDoc(
+      doc(db, USERS_COLLECTION, user.id),
+      {
+        ...user,
+        username_lower: user.username.toLowerCase(),
+        email_lower: user.email.toLowerCase(),
+        updatedAt: Timestamp.now(),
+      },
+      { merge: true },
+    );
+  } catch (error) {
+    console.error("Error updating user:", error);
+    throw new Error("Failed to update user in database");
+  }
 };
 
-export const getUserByUsername = async (username: string): Promise<User | undefined> => {
-  const db = await initDB();
-  return db.getFromIndex(USERS_STORE, 'username_lower', username.toLowerCase());
+export const getUserByUsername = async (
+  username: string,
+): Promise<User | undefined> => {
+  try {
+    const q = query(
+      collection(db, USERS_COLLECTION),
+      where("username_lower", "==", username.toLowerCase()),
+      firestoreLimit(1),
+    );
+    const querySnapshot = await getDocs(q);
+
+    if (querySnapshot.empty) {
+      return undefined;
+    }
+
+    const doc = querySnapshot.docs[0];
+    const userData = doc.data() as User;
+    return userData;
+  } catch (error) {
+    console.error("Error getting user by username:", error);
+    return undefined;
+  }
 };
 
-export const getUserByEmail = async (email: string): Promise<User | undefined> => {
-  const db = await initDB();
-  return db.getFromIndex(USERS_STORE, 'email_lower', email.toLowerCase());
+export const getUserByEmail = async (
+  email: string,
+): Promise<User | undefined> => {
+  try {
+    const q = query(
+      collection(db, USERS_COLLECTION),
+      where("email_lower", "==", email.toLowerCase()),
+      firestoreLimit(1),
+    );
+    const querySnapshot = await getDocs(q);
+
+    if (querySnapshot.empty) {
+      return undefined;
+    }
+
+    const doc = querySnapshot.docs[0];
+    const userData = doc.data() as User;
+    return userData;
+  } catch (error) {
+    console.error("Error getting user by email:", error);
+    return undefined;
+  }
 };
 
-export const saveChatSession = async (session: ChatSession, userId: string, page: Page): Promise<void> => {
-    const db = await initDB();
-    const sessionToIndex = { ...session, userId, page };
-    await db.put(SESSIONS_STORE, sessionToIndex as any);
+export const saveChatSession = async (
+  session: ChatSession,
+  userId: string,
+  page: Page,
+): Promise<void> => {
+  try {
+    await setDoc(doc(db, SESSIONS_COLLECTION, session.id), {
+      ...session,
+      userId,
+      page,
+      createdAtTimestamp: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+  } catch (error) {
+    console.error("Error saving chat session:", error);
+    throw new Error("Failed to save chat session");
+  }
 };
 
-export const getAllChatSessionsForPage = async (userId: string, page: Page): Promise<ChatSession[]> => {
-    const db = await initDB();
-    const range = IDBKeyRange.bound([userId, page, -Infinity], [userId, page, Infinity]);
-    const sessions = await db.getAllFromIndex(SESSIONS_STORE, 'user_page_date', range);
-    return sessions.sort((a, b) => b.createdAt - a.createdAt);
+export const getAllChatSessionsForPage = async (
+  userId: string,
+  page: Page,
+): Promise<ChatSession[]> => {
+  try {
+    const q = query(
+      collection(db, SESSIONS_COLLECTION),
+      where("userId", "==", userId),
+      where("page", "==", page),
+      orderBy("createdAt", "desc"),
+    );
+
+    const querySnapshot = await getDocs(q);
+
+    return querySnapshot.docs.map((doc) => {
+      const data = doc.data();
+      // Remove Firebase-specific fields and return clean ChatSession
+      const {
+        userId: _,
+        page: __,
+        createdAtTimestamp,
+        updatedAt,
+        ...session
+      } = data;
+      return session as ChatSession;
+    });
+  } catch (error) {
+    console.error("Error getting chat sessions:", error);
+    return [];
+  }
 };
 
 export const deleteChatSession = async (sessionId: string): Promise<void> => {
-    const db = await initDB();
-    await db.delete(SESSIONS_STORE, sessionId);
+  try {
+    await deleteDoc(doc(db, SESSIONS_COLLECTION, sessionId));
+  } catch (error) {
+    console.error("Error deleting chat session:", error);
+    throw new Error("Failed to delete chat session");
+  }
 };
