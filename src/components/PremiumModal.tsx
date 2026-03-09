@@ -7,7 +7,7 @@ import LockIcon from "./icons/LockIcon";
 import { UserPlan } from "../types";
 import Loader from "./Loader";
 import { ACTIVATION_CODES } from "../constants";
-import StripeCheckout from "./StripeCheckout";
+import UnifiedPayment from "./UnifiedPayment";
 
 interface PremiumModalProps {
   onClose: () => void;
@@ -211,7 +211,7 @@ const PremiumModal: React.FC<PremiumModalProps> = ({
                               : "bg-white/5 border-white/10 text-slate-400 hover:border-white/20"
                           }`}
                         >
-                          💳 Card Payment
+                          💳 Card / M-Pesa
                         </button>
                         <button
                           onClick={() => setPaymentMethod("code")}
@@ -228,7 +228,7 @@ const PremiumModal: React.FC<PremiumModalProps> = ({
 
                     {/* Payment Form */}
                     {paymentMethod === "stripe" ? (
-                      <StripeCheckout
+                      <UnifiedPayment
                         plan={selectedPlan.id}
                         userId={currentUser.id}
                         userEmail={currentUser.email}

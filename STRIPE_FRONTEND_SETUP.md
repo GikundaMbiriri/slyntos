@@ -23,7 +23,7 @@ This guide shows you how to set up Stripe payments using only frontend code - no
 ```env
 # Frontend-only Stripe setup
 VITE_STRIPE_PUBLISHABLE_KEY=pk_test_your_key_here
-VITE_STRIPE_PAYMENT_LINK=https://buy.stripe.com/test_your_payment_link_here
+VITE_STRIPE_PAYMENT_LINK=https://buy.stripe.com/test_7sI5n1g5RayK2OI9AA
 
 # App configuration
 NODE_ENV=development

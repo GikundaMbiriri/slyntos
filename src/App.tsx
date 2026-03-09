@@ -21,7 +21,8 @@ import SlyntosLogo from "@/components/icons/SlyntosLogo";
 import MenuIcon from "@/components/icons/MenuIcon";
 import PlusIcon from "@/components/icons/PlusIcon";
 import AdjustmentsHorizontalIcon from "@/components/icons/AdjustmentsHorizontalIcon";
-import { updateUser } from "./services/dbService";
+import { updateUser, getUserByEmail } from "./services/dbService";
+import { unifiedPaymentService } from "./services/unifiedPaymentService";
 
 const SESSION_KEY = "slyntos-user-session";
 const LANDING_KEY = "slyntos-landing-seen";
@@ -89,6 +90,76 @@ const App: React.FC = () => {
     }
   }, [currentUser]);
 
+  // Check for completed payments on app initialization (for already logged in users)
+  useEffect(() => {
+    if (currentUser) {
+      checkPaymentStatusOnLogin(currentUser);
+    }
+  }, []); // Run only once when app loads
+
+  // Refresh user data from database on page load/refresh
+  useEffect(() => {
+    const refreshUserFromDatabase = async () => {
+      if (!currentUser?.email) return;
+
+      try {
+        console.log("🔄 Refreshing user data from database...");
+        const latestUser = await getUserByEmail(currentUser.email);
+
+        if (latestUser) {
+          console.log("✅ User data refreshed from database:", {
+            currentPlan: currentUser.plan,
+            latestPlan: latestUser.plan,
+            currentEndDate: currentUser.subscriptionEndDate
+              ? new Date(currentUser.subscriptionEndDate).toISOString()
+              : "none",
+            latestEndDate: latestUser.subscriptionEndDate
+              ? new Date(latestUser.subscriptionEndDate).toISOString()
+              : "none",
+          });
+
+          // Check if there are any differences
+          const planChanged = latestUser.plan !== currentUser.plan;
+          const endDateChanged =
+            latestUser.subscriptionEndDate !== currentUser.subscriptionEndDate;
+
+          if (planChanged || endDateChanged) {
+            console.log(
+              "✨ User data has been updated in database, refreshing UI...",
+            );
+            setCurrentUser(latestUser);
+            localStorage.setItem(SESSION_KEY, JSON.stringify(latestUser));
+
+            // Notify user if plan upgraded
+            if (
+              planChanged &&
+              latestUser.plan === "pro" &&
+              currentUser.plan === "free"
+            ) {
+              setTimeout(() => {
+                alert(
+                  "Your subscription has been activated! Enjoy your Pro features.",
+                );
+              }, 1000);
+            }
+          } else {
+            console.log("ℹ️ User data is up to date");
+          }
+        } else {
+          console.warn("⚠️ User not found in database during refresh");
+        }
+      } catch (error) {
+        console.error("❌ Error refreshing user data:", error);
+        // Don't throw - app should continue to work even if refresh fails
+      }
+    };
+
+    // Run refresh after a short delay to allow other initialization to complete
+    const timeoutId = setTimeout(refreshUserFromDatabase, 1000);
+
+    return () => clearTimeout(timeoutId);
+  }, [currentUser?.email]); // Re-run if user email changes
+
   const createNewChat = useCallback(async () => {
     if (!currentUser) return;
     const newSession: ChatSession = {
@@ -125,6 +196,60 @@ const App: React.FC = () => {
     localStorage.setItem(SESSION_KEY, JSON.stringify(user));
     setCurrentUser(user);
     initialNewChatCreatedRef.current = false;
+
+    // Check for any completed payments after login
+    checkPaymentStatusOnLogin(user);
+  };
+
+  const checkPaymentStatusOnLogin = async (user: User) => {
+    try {
+      console.log("🔍 Checking for completed payments after login...");
+
+      const paymentCheck = await unifiedPaymentService.checkPaymentsForUser(
+        user.email,
+      );
+
+      if (paymentCheck.found && paymentCheck.processed && paymentCheck.result) {
+        console.log(
+          "✅ Found completed payment after login!",
+          paymentCheck.result,
+        );
+
+        // Update the user with the new plan
+        const updatedUser: User = {
+          ...user,
+          plan: paymentCheck.result.plan as UserPlan,
+          subscriptionEndDate: paymentCheck.result.endDate,
+        };
+
+        // Update in database
+        await updateUser(updatedUser);
+
+        // Update in state and localStorage
+        setCurrentUser(updatedUser);
+        localStorage.setItem(SESSION_KEY, JSON.stringify(updatedUser));
+
+        console.log("🎉 User plan automatically updated after login:", {
+          from: user.plan,
+          to: paymentCheck.result.plan,
+          transactionId: paymentCheck.result.transactionId,
+        });
+
+        // Show success notification
+        setTimeout(() => {
+          alert(
+            `Welcome back! Your ${paymentCheck.result!.plan} subscription is now active.`,
+          );
+        }, 1000);
+      } else if (paymentCheck.found && !paymentCheck.processed) {
+        console.log("⏳ Found pending payment, will continue monitoring");
+      } else {
+        console.log("ℹ️ No completed payments found after login");
+      }
+    } catch (error) {
+      console.error("❌ Error checking payment status on login:", error);
+      // Don't throw - login should still succeed even if payment check fails
+    }
   };
 
   const handleLogout = () => {

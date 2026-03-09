@@ -49,7 +49,7 @@ export interface PaymentSuccessResult {
 export const STRIPE_PRODUCTS = {
   pro: {
     // Replace with your actual Stripe Payment Link URL
-    paymentLink: "https://buy.stripe.com/test_your_payment_link_here",
+    paymentLink: "https://buy.stripe.com/test_7sI5n1g5RayK2OI9AA",
     amount: 1000, // $10.00 in cents
     interval: "month" as const,
     name: "Pro Operator",
