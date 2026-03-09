@@ -3,6 +3,7 @@
 interface ImportMetaEnv {
   readonly VITE_TUMA_EMAIL: string;
   readonly VITE_TUMA_API_KEY: string;
+  readonly VITE_KIE_AI_API_KEY: string;
   readonly VITE_STRIPE_PUBLISHABLE_KEY: string;
   readonly VITE_FIREBASE_API_KEY: string;
   readonly VITE_FIREBASE_AUTH_DOMAIN: string;
