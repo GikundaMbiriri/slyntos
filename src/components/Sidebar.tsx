@@ -17,6 +17,7 @@ import {
   User as UserIcon
 } from 'lucide-react';
 import SlyntosLogo from '@/components/icons/SlyntosLogo';
+import logo from '../assets/images/logo.jpeg'
 import { PLAN_LIMITS } from '@/constants';
 
 interface SidebarProps {
@@ -87,7 +88,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           <div className={`p-6 flex items-center justify-between ${isCollapsed ? 'flex-col gap-6 p-4' : ''}`}>
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-white rounded-2xl flex items-center justify-center shadow-2xl shadow-white/10 flex-shrink-0 group cursor-pointer transition-transform hover:rotate-6">
-                <SlyntosLogo className="w-6 h-6" />
+                <img src={logo} alt="Slyntos Logo" className="w-10 h-10 rounded-lg" />
               </div>
               {!isCollapsed && (
                 <div className="flex flex-col">
@@ -193,10 +194,10 @@ const Sidebar: React.FC<SidebarProps> = ({
               <div className="px-2 py-4 rounded-2xl bg-white/[0.02] border border-white/5 space-y-3">
                 <div className="flex justify-between items-center px-1">
                   <div className="flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                    <span className="text-[8px] font-black text-gray-500 uppercase tracking-[0.2em]">Neural Bandwidth</span>
+                    {/* <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" /> */}
+                    {/* <span className="text-[8px] font-black text-gray-500 uppercase tracking-[0.2em]">Neural Bandwidth</span> */}
                   </div>
-                  <span className="text-[8px] font-mono text-gray-400">{globalUsage} / {globalLimit}</span>
+                  {/* <span className="text-[8px] font-mono text-gray-400">{globalUsage} / {globalLimit}</span> */}
                 </div>
                 <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden p-[1px]">
                   <div 
@@ -209,8 +210,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                   />
                 </div>
                 <div className="flex justify-between items-center px-1">
-                  <span className="text-[7px] text-gray-600 font-bold uppercase">System Load: Nominal</span>
-                  <span className="text-[7px] text-gray-600 font-bold uppercase">{usagePercentage.toFixed(1)}%</span>
+                  {/* <span className="text-[7px] text-gray-600 font-bold uppercase">System Load: Nominal</span>
+                  <span className="text-[7px] text-gray-600 font-bold uppercase">{usagePercentage.toFixed(1)}%</span> */}
                 </div>
               </div>
             )}
