@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import SlyntosLogo from "./icons/SlyntosLogo";
+import logo from '../assets/images/logo.jpeg'
 import ChatBubbleLeftRightIcon from "./icons/ChatBubbleLeftRightIcon";
 import AcademicCapIcon from "./icons/AcademicCapIcon";
 import CodeBracketSquareIcon from "./icons/CodeBracketSquareIcon";
@@ -79,7 +80,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onFinish }) => {
             whileHover={{ rotate: 6 }}
             className="w-16 h-16 sm:w-20 sm:h-20 bg-white rounded-[1.5rem] sm:rounded-[2rem] flex items-center justify-center shadow-[0_0_50px_rgba(255,255,255,0.1)] mb-6 sm:mb-8 transition-transform duration-500"
           >
-            <SlyntosLogo className="w-9 h-9 sm:w-12 sm:h-12" />
+            <img src={logo} alt="Slyntos Logo" className="w-16 h-16 sm:w-20 sm:h-20" />
           </motion.div>
 
           <h1 className="text-4xl sm:text-6xl lg:text-8xl font-black tracking-tighter uppercase mb-3 sm:mb-4 text-center leading-tight">

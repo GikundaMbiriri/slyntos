@@ -38,72 +38,12 @@ const UnifiedPayment: React.FC<UnifiedPaymentProps> = ({
     "ready" | "processing" | "pending" | "success"
   >("ready");
   const [showPhoneInput, setShowPhoneInput] = useState(false);
-  const [debugMode, setDebugMode] = useState(false);
   const [pendingPayment, setPendingPayment] = useState(false);
   const [recoveredPayment, setRecoveredPayment] = useState<{
     found: boolean;
     checkoutRequestId?: string;
     plan?: string;
   }>({ found: false });
-
-  const testTumaAPI = async () => {
-    console.log("Manual Tuma API test triggered...");
-    const directResult = await unifiedPaymentService.testTumaApiDirect();
-    console.log("Manual direct API test result:", directResult);
-
-    const authResult = await unifiedPaymentService.testTumaAuth();
-    console.log("Manual auth test result:", authResult);
-
-    alert(
-      `Direct API: ${directResult.success ? "SUCCESS" : "FAILED"}\nAuth Test: ${authResult.success ? "SUCCESS" : "FAILED"}\nCheck console for details.`,
-    );
-  };
-
-  const testDatabaseConnection = async () => {
-    console.log("🧪 Testing database connection...");
-    const dbResult =
-      await unifiedPaymentService.testDatabaseConnection(userEmail);
-    console.log("🧪 Database test result:", dbResult);
-
-    alert(
-      `Database Test: ${dbResult.success ? "SUCCESS" : "FAILED"}\nMessage: ${dbResult.message}\nCheck console for details.`,
-    );
-  };
-
-  const simulatePaymentSuccess = async () => {
-    console.log("🎯 Starting payment success simulation...");
-    console.log("User details:", { userId, userEmail, userName, plan });
-
-    const result = await unifiedPaymentService.simulatePaymentCompletion(true);
-    console.log("💰 Payment simulation result:", result);
-
-    if (result.success) {
-      console.log("✅ Payment successful, updating UI...");
-      setPaymentStep("success");
-      setPendingPayment(false);
-
-      // Call onSuccess immediately to update the parent component
-      console.log("📢 Calling onSuccess with:", {
-        plan: result.plan,
-        endDate: result.endDate,
-      });
-      onSuccess(result.plan, result.endDate);
-    } else {
-      console.error("❌ Payment simulation failed:", result.errorMessage);
-      onError(result.errorMessage || "Payment simulation failed");
-    }
-  };
-
-  const simulatePaymentFailure = async () => {
-    console.log("💔 Starting payment failure simulation...");
-    const result = await unifiedPaymentService.simulatePaymentCompletion(false);
-    console.log("💔 Payment failure simulation result:", result);
-
-    setPendingPayment(false);
-    setPaymentStep("ready");
-    setIsProcessing(false);
-    onError(result.errorMessage || "Payment cancelled");
-  };
 
   const manualPaymentCheck = async () => {
     console.log("🔍 Manual payment check triggered...");
@@ -523,24 +463,6 @@ const UnifiedPayment: React.FC<UnifiedPaymentProps> = ({
         </div>
       </div>
 
-      {/* Debug Buttons for Testing */}
-      {selectedMethod === "tuma" && (
-        <div className="space-y-2">
-          <button
-            onClick={testTumaAPI}
-            className="w-full px-4 py-2 bg-yellow-600/20 border border-yellow-500/30 rounded-lg text-yellow-400 text-xs font-bold hover:bg-yellow-600/30 transition-all"
-          >
-            🔧 DEBUG: Test Tuma API
-          </button>
-          <button
-            onClick={testDatabaseConnection}
-            className="w-full px-4 py-2 bg-blue-600/20 border border-blue-500/30 rounded-lg text-blue-400 text-xs font-bold hover:bg-blue-600/30 transition-all"
-          >
-            🗄️ DEBUG: Test Database
-          </button>
-        </div>
-      )}
-
       {/* Payment Button */}
       <button
         onClick={handlePayment}
@@ -574,23 +496,6 @@ const UnifiedPayment: React.FC<UnifiedPaymentProps> = ({
           <div className="text-xs text-orange-300 space-y-2 text-center mb-4">
             <p>• Check your phone for the M-Pesa prompt</p>
             <p>• Enter your M-Pesa PIN to complete payment</p>
-            <p>• Use the buttons below to simulate completion</p>
-          </div>
-
-          {/* Test/Simulation Buttons */}
-          <div className="flex gap-2">
-            <button
-              onClick={simulatePaymentSuccess}
-              className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 px-3 rounded-lg text-xs font-bold transition-all"
-            >
-              ✅ Simulate Success
-            </button>
-            <button
-              onClick={simulatePaymentFailure}
-              className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 px-3 rounded-lg text-xs font-bold transition-all"
-            >
-              ❌ Simulate Cancel
-            </button>
           </div>
         </div>
       )}

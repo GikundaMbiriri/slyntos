@@ -92,10 +92,10 @@ const PremiumModal: React.FC<PremiumModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl animate-fade-in">
-      <div className="relative w-full max-w-5xl bg-[#0a0a0a] border border-white/5 rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col md:flex-row min-h-[600px]">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl animate-fade-in overflow-auto">
+      <div className="relative w-full max-w-5xl bg-[#0a0a0a] border border-white/5 rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[95vh] my-4">
         {/* Left Side: Value Proposition */}
-        <div className="md:w-4/12 p-8 bg-gradient-to-b from-blue-600/10 to-transparent border-r border-white/5 flex flex-col">
+        <div className="md:w-4/12 p-6 md:p-8 bg-gradient-to-b from-blue-600/10 to-transparent border-r border-white/5 flex flex-col overflow-y-auto">
           <div className="mb-8">
             <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center mb-4 shadow-xl">
               <SparklesIcon className="w-7 h-7 text-blue-600" />
@@ -135,7 +135,7 @@ const PremiumModal: React.FC<PremiumModalProps> = ({
         </div>
 
         {/* Right Side: Plans & Activation */}
-        <div className="md:w-8/12 p-8 flex flex-col">
+        <div className="md:w-8/12 p-6 md:p-8 flex flex-col overflow-y-auto max-h-full">
           <button
             onClick={onClose}
             className="absolute top-6 right-6 p-2 text-slate-600 hover:text-white transition-all active:scale-90"
@@ -154,7 +154,7 @@ const PremiumModal: React.FC<PremiumModalProps> = ({
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
                 {PLANS.map((plan) => (
                   <button
                     key={plan.id}
@@ -194,7 +194,7 @@ const PremiumModal: React.FC<PremiumModalProps> = ({
                 ))}
               </div>
 
-              <div className="mt-auto space-y-4">
+              <div className="space-y-4 flex-shrink-0">
                 {selectedPlan.id !== "free" && (
                   <div className="space-y-4">
                     {/* Payment Method Selection */}

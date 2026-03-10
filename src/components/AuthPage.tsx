@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { login, register } from "../services/authService";
 import type { User } from "../types";
 import SlyntosLogo from "./icons/SlyntosLogo";
+import logo from '../assets/images/logo.jpeg'
 import Loader from "./Loader";
 
 interface AuthPageProps {
@@ -41,7 +42,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
       <div className="w-full max-w-[280px] sm:max-w-xs bg-gray-900 rounded-[2.5rem] p-8 border border-gray-800 shadow-2xl">
         <div className="text-center mb-6">
           <div className="w-10 h-10 bg-white rounded-xl mx-auto flex items-center justify-center mb-3 shadow-xl">
-            <SlyntosLogo className="w-6 h-6" />
+            <img src={logo} alt="Slyntos Logo" className="w-10 h-10 rounded-lg" />
           </div>
           <h1 className="text-lg font-bold tracking-tight text-white italic">
             {isRegisterMode ? "Register" : "Sign In"}
