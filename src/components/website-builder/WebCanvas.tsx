@@ -130,16 +130,17 @@ const WebCanvas: React.FC<WebCanvasProps> = ({
 
   return (
     <div 
-      className="flex-1 overflow-auto bg-gray-100 p-8 flex justify-center items-start relative"
+      className="flex-1 overflow-visible bg-gray-100 p-8 flex justify-center items-start relative"
       onClick={() => onSelectElement(null)}
-      style={{ backgroundImage: gridEnabled ? 'radial-gradient(#cbd5e1 1px, transparent 1px)' : 'none', backgroundSize: '20px 20px' }}
+      style={{ backgroundImage: gridEnabled ? 'radial-gradient(#cbd5e1 1px, transparent 1px)' : 'none', backgroundSize: '20px 20px', minHeight: '100vh' }}
     >
       <div 
         ref={canvasRef}
         className="bg-white shadow-2xl transition-all duration-300 origin-top"
         style={{ 
           width: getCanvasWidth(),
-          minHeight: '100%',
+          minHeight: 'max(70vh, 100%)',
+          height: 'auto',
           transform: `scale(${zoom / 100})`,
           ...page.styles.global
         } as any}
