@@ -102,19 +102,49 @@ export const getUserByEmail = async (
   }
 };
 
+// Helper function to clean undefined values from objects
+const cleanObject = (obj: any): any => {
+  const cleaned: any = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      if (Array.isArray(value)) {
+        cleaned[key] = value.map((item) =>
+          typeof item === "object" && item !== null ? cleanObject(item) : item,
+        );
+      } else if (typeof value === "object" && value !== null) {
+        cleaned[key] = cleanObject(value);
+      } else {
+        cleaned[key] = value;
+      }
+    }
+  }
+  return cleaned;
+};
+
 export const saveChatSession = async (
   session: ChatSession,
   userId: string,
   page: Page,
 ): Promise<void> => {
   try {
-    await setDoc(doc(db, SESSIONS_COLLECTION, session.id), {
-      ...session,
+    // Clean undefined values from session data
+    const cleanSession = {
+      id: session.id,
+      title: session.title,
+      createdAt: session.createdAt,
+      messages: (session.messages || []).map((msg) => cleanObject(msg)),
       userId,
       page,
       createdAtTimestamp: Timestamp.now(),
       updatedAt: Timestamp.now(),
-    });
+    };
+
+    // Only include sessionConfig if it's defined
+    if (session.sessionConfig) {
+      (cleanSession as any).sessionConfig = cleanObject(session.sessionConfig);
+    }
+
+    await setDoc(doc(db, SESSIONS_COLLECTION, session.id), cleanSession);
   } catch (error) {
     console.error("Error saving chat session:", error);
     throw new Error("Failed to save chat session");

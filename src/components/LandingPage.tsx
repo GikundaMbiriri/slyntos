@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import SlyntosLogo from "./icons/SlyntosLogo";
-import logo from '../assets/images/logo.jpeg'
+import logo from "../assets/images/logo.jpeg";
 import ChatBubbleLeftRightIcon from "./icons/ChatBubbleLeftRightIcon";
 import AcademicCapIcon from "./icons/AcademicCapIcon";
 import CodeBracketSquareIcon from "./icons/CodeBracketSquareIcon";
@@ -80,16 +80,28 @@ const LandingPage: React.FC<LandingPageProps> = ({ onFinish }) => {
             whileHover={{ rotate: 6 }}
             className="w-16 h-16 sm:w-20 sm:h-20 bg-white rounded-[1.5rem] sm:rounded-[2rem] flex items-center justify-center shadow-[0_0_50px_rgba(255,255,255,0.1)] mb-6 sm:mb-8 transition-transform duration-500"
           >
-            <img src={logo} alt="Slyntos Logo" className="w-16 h-16 sm:w-20 sm:h-20" />
+            <img
+              src={logo}
+              alt="Slyntos Logo"
+              className="w-16 h-16 sm:w-20 sm:h-20"
+            />
           </motion.div>
 
           <h1 className="text-4xl sm:text-6xl lg:text-8xl font-black tracking-tighter uppercase mb-3 sm:mb-4 text-center leading-tight">
             Slyntos
           </h1>
 
-          <p className="text-gray-400 text-sm sm:text-lg lg:text-xl font-medium tracking-wide text-center max-w-xs sm:max-w-xl px-2">
+          <p className="text-gray-400 text-sm sm:text-lg lg:text-xl font-medium tracking-wide text-center max-w-xs sm:max-w-xl px-2 mb-4">
             The world's most powerful assistant. Built for speed, intelligence,
             and creativity.
+          </p>
+
+          <p className="text-gray-500 text-xs sm:text-sm font-medium leading-relaxed text-center max-w-xs sm:max-w-3xl px-2">
+            Slyntos AI is a Kenyan-made artificial intelligence platform
+            designed to help people create, learn, and work faster. It brings
+            powerful tools like AI chat, image generation, video creation, voice
+            interaction, and website building into one easy-to-use platform for
+            students, creators, and businesses.
           </p>
         </div>
 

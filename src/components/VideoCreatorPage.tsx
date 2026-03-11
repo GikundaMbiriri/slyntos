@@ -56,12 +56,12 @@ const VideoCreatorPage: React.FC<VideoCreatorPageProps> = ({
         const result = await testKieAIService();
         setKieAiConnected(result.success);
         if (!result.success) {
-          setStatus(`⚠️ Kie AI Connection: ${result.message}`);
+          setStatus(`⚠️ Service Connection: ${result.message}`);
         }
       } catch (error) {
-        console.error("Kie AI connection test failed:", error);
+        console.error("Service connection test failed:", error);
         setKieAiConnected(false);
-        setStatus("⚠️ Failed to connect to Kie AI service");
+        setStatus("⚠️ Failed to connect to service");
       } finally {
         setIsTestingConnection(false);
       }
@@ -76,40 +76,80 @@ const VideoCreatorPage: React.FC<VideoCreatorPageProps> = ({
       const result = await testKieAIService();
       setKieAiConnected(result.success);
       if (result.success) {
-        setStatus("✅ Kie AI connected successfully!");
+        setStatus("✅ Service connected successfully!");
       } else {
         setStatus(`⚠️ Connection failed: ${result.message}`);
       }
     } catch (error) {
       setKieAiConnected(false);
-      setStatus("⚠️ Failed to connect to Kie AI service");
+      setStatus("⚠️ Failed to connect to service");
     } finally {
       setIsTestingConnection(false);
     }
   };
 
   const handleGenerate = async () => {
-    if (!prompt.trim()) return;
+    console.log("🚀 handleGenerate called");
+    console.log("📝 Current prompt:", prompt);
+    console.log("🔌 KieAI connected:", kieAiConnected);
+    console.log("👤 Current user:", currentUser);
+    console.log("📊 User plan:", currentUser.plan);
+    console.log("🔢 Usage counts:", currentUser.usageCounts);
+
+    if (!prompt.trim()) {
+      console.log("❌ Empty prompt, returning early");
+      setStatus("⚠️ Please enter a video description before generating.");
+      return;
+    }
+    console.log("✅ Prompt validation passed");
 
     const limits = PLAN_LIMITS[currentUser.plan as keyof typeof PLAN_LIMITS];
+    console.log("📋 Plan limits:", limits);
+
     const videoUsage = currentUser.usageCounts[Page.Studio] || 0;
+    console.log(
+      "📈 Current video usage:",
+      videoUsage,
+      "/ Limit:",
+      limits.video,
+    );
 
     if (videoUsage >= limits.video) {
+      console.log("🚫 Usage limit reached");
       setStatus(
         `⚠️ Limit Reached: ${currentUser.plan === "free" ? "Free users cannot synthesize video." : "Pro users are limited to 1 video generation."} Upgrade for more.`,
       );
       return;
     }
+    console.log("✅ Usage limit check passed");
 
     if (!kieAiConnected) {
+      console.log("🔄 KieAI not connected, attempting to reconnect...");
       await handleRetryConnection();
+      console.log("🔌 After retry - KieAI connected:", kieAiConnected);
+      if (!kieAiConnected) {
+        console.log("❌ Still not connected after retry");
+        setStatus("❌ Cannot connect to video service. Please try again.");
+        return;
+      }
     }
 
+    console.log("🎬 Starting video generation process...");
     setIsGenerating(true);
     setVideoUrl(null);
-    setStatus("🎬 Initializing Kie AI Neural Engine...");
+    setStatus("🎬 Initializing Neural Engine...");
 
     try {
+      console.log("📞 Calling generateVideoWithKieAI with params:", {
+        prompt,
+        options: {
+          aspectRatio: "16:9",
+          duration: 10,
+          mode: "std",
+          sound: true,
+        },
+      });
+
       const url = await generateVideoWithKieAI(
         prompt,
         {
@@ -118,27 +158,45 @@ const VideoCreatorPage: React.FC<VideoCreatorPageProps> = ({
           mode: "std",
           sound: true,
         },
-        (msg) => setStatus(msg),
+        (msg) => {
+          console.log("📢 Status update from service:", msg);
+          setStatus(msg);
+        },
       );
+
+      console.log("✅ Video generation completed successfully");
+      console.log("🎥 Video URL:", url);
       setVideoUrl(url);
       setStatus("✅ Video generated successfully!");
+
+      console.log("📊 Incrementing usage count...");
       onUsageIncrement(Page.Studio);
     } catch (error: any) {
-      console.error("Kie AI Video Generation Error:", error);
+      console.error("💥 Video Generation Error:", error);
+      console.error("🔍 Error details:", {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+      });
+
       if (
         error.message?.includes("Authorization") ||
         error.message?.includes("API key")
       ) {
+        console.log("🔑 Authentication error detected");
         setKieAiConnected(false);
-        setStatus("🔑 API Key Error. Please check your Kie AI credentials.");
+        setStatus("🔑 API Key Error. Please check your credentials.");
       } else if (error.message?.includes("timeout")) {
+        console.log("⏰ Timeout error detected");
         setStatus("⏰ Video generation timed out. Please try again.");
       } else {
+        console.log("❓ Unknown error detected");
         setStatus(
           `❌ Generation Error: ${error.message || "Unknown error occurred"}`,
         );
       }
     } finally {
+      console.log("🏁 Video generation process finished");
       setIsGenerating(false);
     }
   };
@@ -153,7 +211,7 @@ const VideoCreatorPage: React.FC<VideoCreatorPageProps> = ({
                 Slyntos Studio
               </h1>
               <p className="text-gray-500 text-sm font-medium">
-                Professional AI Video Creation powered by Kie AI.
+                Professional AI Video Creation.
               </p>
             </div>
 
@@ -180,8 +238,8 @@ const VideoCreatorPage: React.FC<VideoCreatorPageProps> = ({
                   <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl space-y-3">
                     <p className="text-[10px] font-bold text-amber-500 uppercase tracking-wider">
                       {isTestingConnection
-                        ? "Testing Kie AI Connection..."
-                        : "Kie AI service connection required for video generation"}
+                        ? "Testing Connection..."
+                        : "Service connection required for video generation"}
                     </p>
                     <button
                       onClick={handleRetryConnection}
@@ -193,7 +251,7 @@ const VideoCreatorPage: React.FC<VideoCreatorPageProps> = ({
                         : "Retry Connection"}
                     </button>
                     <p className="text-[9px] text-gray-500 italic">
-                      Powered by Kie AI's advanced video generation models
+                      Powered by advanced video generation models
                     </p>
                   </div>
                 )}
@@ -205,7 +263,7 @@ const VideoCreatorPage: React.FC<VideoCreatorPageProps> = ({
                   <textarea
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="Describe the video you want to create with Kie AI..."
+                    placeholder="Describe the video you want to create..."
                     className="w-full bg-gray-950 border border-gray-800 rounded-2xl p-4 text-sm focus:outline-none focus:border-gray-700 transition-all min-h-[100px] resize-none"
                   />
                 </div>
@@ -216,9 +274,7 @@ const VideoCreatorPage: React.FC<VideoCreatorPageProps> = ({
                   className="w-full py-4 bg-white text-black rounded-2xl font-black uppercase italic text-xs tracking-widest flex items-center justify-center gap-3 hover:bg-gray-200 transition-all disabled:opacity-50"
                 >
                   <SparklesIcon className="w-4 h-4" />
-                  {isGenerating
-                    ? "Generating with Kie AI..."
-                    : "Generate Video"}
+                  {isGenerating ? "Generating..." : "Generate Video"}
                 </button>
 
                 {status && isGenerating && (
