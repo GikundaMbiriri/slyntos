@@ -234,28 +234,6 @@ const VideoCreatorPage: React.FC<VideoCreatorPageProps> = ({
           {activeTab === "create" ? (
             <div className="space-y-8 animate-fade-in">
               <div className="bg-gray-900 p-6 rounded-3xl border border-gray-800 shadow-2xl space-y-6">
-                {!kieAiConnected && (
-                  <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl space-y-3">
-                    <p className="text-[10px] font-bold text-amber-500 uppercase tracking-wider">
-                      {isTestingConnection
-                        ? "Testing Connection..."
-                        : "Service connection required for video generation"}
-                    </p>
-                    <button
-                      onClick={handleRetryConnection}
-                      disabled={isTestingConnection}
-                      className="w-full py-2 bg-amber-500 text-black rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-400 transition-all disabled:opacity-50"
-                    >
-                      {isTestingConnection
-                        ? "Connecting..."
-                        : "Retry Connection"}
-                    </button>
-                    <p className="text-[9px] text-gray-500 italic">
-                      Powered by advanced video generation models
-                    </p>
-                  </div>
-                )}
-
                 <div className="space-y-2">
                   <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">
                     AI Video Generation Prompt

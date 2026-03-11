@@ -73,7 +73,7 @@ class UnifiedPaymentService {
       icon: "📱",
       description: "Pay using M-Pesa mobile money",
       currency: "KES",
-      amount: 1, // KES 100
+      amount: 1000, // KES 1000
     },
     stripe: {
       name: "Credit/Debit Card",

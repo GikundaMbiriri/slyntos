@@ -213,7 +213,7 @@ const PremiumModal: React.FC<PremiumModalProps> = ({
                         >
                           💳 Card / M-Pesa
                         </button>
-                        <button
+                        {/* <button
                           onClick={() => setPaymentMethod("code")}
                           className={`p-3 rounded-xl border text-xs font-black uppercase tracking-widest transition-all ${
                             paymentMethod === "code"
@@ -222,7 +222,7 @@ const PremiumModal: React.FC<PremiumModalProps> = ({
                           }`}
                         >
                           🔑 Access Code
-                        </button>
+                        </button> */}
                       </div>
                     </div>
 
