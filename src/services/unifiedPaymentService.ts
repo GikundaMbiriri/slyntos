@@ -64,7 +64,19 @@ class UnifiedPaymentService {
   private tumaToken: string | null = null;
   private tokenExpiry: number = 0;
   private pollingInterval: NodeJS.Timeout | null = null;
-  private paymentCallbacks: Map<string, (result: PaymentResult) => void> = new Map();
+  private paymentCallbacks: Map<string, (result: PaymentResult) => void> =
+    new Map();
+
+  // Payment status change callback
+  public onPaymentStatusChange:
+    | ((status: {
+        success: boolean;
+        status: string;
+        transactionId?: string;
+        checkoutRequestId: string;
+        reason?: string;
+      }) => void)
+    | null = null;
 
   // Payment method configurations
   private paymentMethods: Record<PaymentMethod, PaymentMethodInfo> = {
@@ -256,12 +268,18 @@ class UnifiedPaymentService {
         formattedPhone = "254" + formattedPhone;
       }
 
+      // Use the correct Firebase Functions callback URL
+      const callbackUrl =
+        "https://us-central1-slyntos-a6cb8.cloudfunctions.net/tumaCallback";
+
       const stkPushData = {
         amount: paymentInfo.amount,
         phone: formattedPhone,
-        callback_url: "https://slyntos-callback.vercel.app/tuma-callback", // Your callback URL for production
+        callback_url: callbackUrl,
         description: `Slyntos ${config.plan} subscription`,
       };
+
+      console.log("🌐 Using callback URL:", callbackUrl);
 
       console.log("Sending STK push with token length:", token.length);
       console.log("STK push data:", stkPushData);
@@ -305,7 +323,7 @@ class UnifiedPaymentService {
         throw new Error(result.message || "STK Push failed");
       }
 
-      // Store payment session for tracking
+      // Store payment session in Firestore for callback processing
       const paymentSession = {
         merchantRequestId: result.data.merchant_request_id,
         checkoutRequestId: result.data.checkout_request_id,
@@ -318,18 +336,49 @@ class UnifiedPaymentService {
         status: "pending",
       };
 
-      localStorage.setItem(
-        "tuma_payment_session",
-        JSON.stringify(paymentSession),
-      );
+      // Store session in Firestore for Firebase Functions callback
+      try {
+        const { initializeApp, getApps, getApp } = await import("firebase/app");
+        const { getFirestore, collection, addDoc, query, where, getDocs } =
+          await import("firebase/firestore");
 
-      console.log(
-        "STK Push successful! Waiting for user to complete payment on phone...",
-      );
-      console.log("💾 Payment session stored:", paymentSession);
+        // Initialize Firebase if not already done
+        const firebaseConfig = await this.getFirebaseConfig();
+        const app =
+          getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
-      // Start polling for payment status
+        const db = getFirestore(app);
+        await addDoc(collection(db, "payment_sessions"), paymentSession);
+        console.log("💾 Payment session stored in Firestore:", paymentSession);
+      } catch (firestoreError) {
+        console.error(
+          "❌ Failed to store payment session in Firestore:",
+          firestoreError,
+        );
+        // Fallback to localStorage for development
+        localStorage.setItem(
+          "tuma_payment_session",
+          JSON.stringify(paymentSession),
+        );
+      }
+
+      console.log("STK Push successful! Waiting for M-Pesa callback...");
+      console.log("💾 Payment session stored for callback processing");
+      console.log("🔍 STK Push Result Details:", {
+        merchantRequestId: result.data.merchant_request_id,
+        checkoutRequestId: result.data.checkout_request_id,
+        customerMessage: result.data.customer_message,
+        amount: paymentInfo.amount,
+        phone: formattedPhone,
+      });
+
+      // Start polling Firebase Functions callback status
       this.startPaymentStatusPolling(result.data.checkout_request_id);
+      console.log("⏳ Started 3-second polling for payment completion");
+      console.log(
+        "🎯 Polling will check for checkoutRequestId:",
+        result.data.checkout_request_id,
+      );
 
       // Return success with pending status - polling will handle completion
       return {
@@ -509,12 +558,14 @@ class UnifiedPaymentService {
   /**
    * Handle Tuma callback data (exact format from Tuma API documentation)
    */
-  async handleTumaCallback(callbackData: TumaCallbackData): Promise<PaymentResult> {
-    console.log('🔄 Processing Tuma callback:', callbackData);
-    
+  async handleTumaCallback(
+    callbackData: TumaCallbackData,
+  ): Promise<PaymentResult> {
+    console.log("🔄 Processing Tuma callback:", callbackData);
+
     const storedSession = localStorage.getItem("tuma_payment_session");
     if (!storedSession) {
-      console.error('❌ No stored payment session found for callback');
+      console.error("❌ No stored payment session found for callback");
       return {
         success: false,
         plan: "free",
@@ -525,13 +576,13 @@ class UnifiedPaymentService {
 
     try {
       const session = JSON.parse(storedSession);
-      console.log('📄 Stored session data:', session);
+      console.log("📄 Stored session data:", session);
 
       // Verify this callback matches our session using checkout_request_id
       if (session.checkoutRequestId !== callbackData.checkout_request_id) {
-        console.error('❌ Callback ID mismatch:', {
+        console.error("❌ Callback ID mismatch:", {
           stored: session.checkoutRequestId,
-          received: callbackData.checkout_request_id
+          received: callbackData.checkout_request_id,
         });
         return {
           success: false,
@@ -543,48 +594,53 @@ class UnifiedPaymentService {
 
       // Clear the stored session
       localStorage.removeItem("tuma_payment_session");
-      console.log('🗑️ Payment session cleared');
+      console.log("🗑️ Payment session cleared");
 
       // Check if payment is successful (status = "completed" AND result_code = 0)
-      if (callbackData.status === "completed" && callbackData.result_code === 0) {
-        console.log('✅ Payment successful via callback!', {
+      if (
+        callbackData.status === "completed" &&
+        callbackData.result_code === 0
+      ) {
+        console.log("✅ Payment successful via callback!", {
           mpesaReceipt: callbackData.mpesa_receipt_number,
           amount: callbackData.amount,
-          timestamp: callbackData.timestamp
+          timestamp: callbackData.timestamp,
         });
-        
+
         // Payment successful - update user in database
         const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
         const subscriptionEndDate = Date.now() + thirtyDaysInMs;
-        
+
         try {
-          console.log('🔍 Looking up user by email:', session.userEmail);
+          console.log("🔍 Looking up user by email:", session.userEmail);
           const currentUser = await getUserByEmail(session.userEmail);
-          
+
           if (currentUser) {
             const updatedUser = {
               ...currentUser,
               plan: session.plan as UserPlan,
               subscriptionEndDate: subscriptionEndDate,
             };
-            
+
             await updateUser(updatedUser);
-            console.log('✅ User updated via callback!', {
+            console.log("✅ User updated via callback!", {
               userId: currentUser.id,
               plan: session.plan,
-              mpesaReceipt: callbackData.mpesa_receipt_number
+              mpesaReceipt: callbackData.mpesa_receipt_number,
             });
-            
+
             return {
               success: true,
               plan: session.plan,
               endDate: subscriptionEndDate,
-              transactionId: callbackData.mpesa_receipt_number || callbackData.checkout_request_id,
+              transactionId:
+                callbackData.mpesa_receipt_number ||
+                callbackData.checkout_request_id,
               merchantRequestId: callbackData.merchant_request_id,
               checkoutRequestId: callbackData.checkout_request_id,
             };
           } else {
-            console.error('❌ User not found for email:', session.userEmail);
+            console.error("❌ User not found for email:", session.userEmail);
             return {
               success: false,
               plan: "free",
@@ -592,9 +648,8 @@ class UnifiedPaymentService {
               errorMessage: "User not found for payment update",
             };
           }
-          
         } catch (dbError) {
-          console.error('❌ Database update failed:', dbError);
+          console.error("❌ Database update failed:", dbError);
           return {
             success: false,
             plan: "free",
@@ -604,18 +659,21 @@ class UnifiedPaymentService {
         }
       } else {
         // Payment failed or cancelled
-        console.log('❌ Payment failed via callback:', {
+        console.log("❌ Payment failed via callback:", {
           status: callbackData.status,
           resultCode: callbackData.result_code,
           resultDesc: callbackData.result_desc,
-          failureReason: callbackData.failure_reason
+          failureReason: callbackData.failure_reason,
         });
-        
+
         return {
           success: false,
           plan: "free",
           endDate: 0,
-          errorMessage: callbackData.failure_reason || callbackData.result_desc || "Payment failed",
+          errorMessage:
+            callbackData.failure_reason ||
+            callbackData.result_desc ||
+            "Payment failed",
         };
       }
     } catch (error) {
@@ -630,125 +688,33 @@ class UnifiedPaymentService {
   }
 
   /**
-   * Simulate payment completion (for testing since we can't use real callbacks)
+   * REMOVED: Payment simulation completely disabled for security
+   * Only real M-Pesa callbacks can complete payments
    */
-  async simulatePaymentCompletion(success: boolean = true): Promise<PaymentResult> {
-    console.log('🏁 Starting payment simulation, success:', success);
-    
-    const storedSession = localStorage.getItem("tuma_payment_session");
-    console.log('💾 Stored session data:', storedSession);
-    
-    if (!storedSession) {
-      console.error('❌ No stored payment session found');
-      return {
-        success: false,
-        plan: "free",
-        endDate: 0,
-        errorMessage: "No pending payment session found",
-      };
-    }
-
-    try {
-      const session = JSON.parse(storedSession);
-      console.log('📋 Parsed session:', session);
-
-      // Clear the stored session
-      localStorage.removeItem("tuma_payment_session");
-
-      if (success) {
-        // Payment successful - update user in database
-        const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
-        const subscriptionEndDate = Date.now() + thirtyDaysInMs;
-        
-        console.log('💰 Processing successful payment for plan:', session.plan);
-        console.log('📧 Using email for lookup:', session.userEmail);
-        
-        try {
-          // Get current user by email
-          const currentUser = await getUserByEmail(session.userEmail || 'unknown@email.com');
-          console.log('👤 User lookup result:', currentUser ? 'FOUND' : 'NOT FOUND');
-          
-          if (currentUser) {
-            console.log('👤 Found user to update:', {
-              id: currentUser.id,
-              email: currentUser.email,
-              username: currentUser.username,
-              currentPlan: currentUser.plan,
-              currentEndDate: currentUser.subscriptionEndDate ? new Date(currentUser.subscriptionEndDate).toISOString() : 'none'
-            });
-
-            const updatedUser = {
-              ...currentUser,
-              plan: session.plan as UserPlan,
-              subscriptionEndDate: subscriptionEndDate,
-            };
-            
-            console.log('💾 About to update user with:', {
-              id: updatedUser.id,
-              newPlan: updatedUser.plan,
-              newEndDate: new Date(subscriptionEndDate).toISOString(),
-              fullUserObject: updatedUser
-            });
-            
-            await updateUser(updatedUser);
-            console.log('✅ Database update completed successfully!');
-            console.log('✅ User plan changed from', currentUser.plan, 'to', session.plan);
-          } else {
-            console.error('❌ Could not find user with email:', session.userEmail);
-            console.log('🔍 Attempting to debug user lookup...');
-            
-            // Try alternative lookup methods for debugging
-            try {
-              const allUsers = await getUserByEmail(''); // This might not work, just for debugging
-              console.log('🗂️ Database connection test result:', allUsers ? 'Connected' : 'Failed');
-            } catch (lookupError) {
-              console.error('🔌 Database connection issue:', lookupError);
-            }
-          }
-        } catch (dbError) {
-          console.error('❌ Database operation failed:', dbError);
-          console.error('❌ Error details:', {
-            message: dbError instanceof Error ? dbError.message : 'Unknown error',
-            stack: dbError instanceof Error ? dbError.stack : 'No stack trace'
-          });
-        }
-
-        return {
-          success: true,
-          plan: session.plan,
-          endDate: subscriptionEndDate,
-          transactionId: `MPESA_${Date.now()}`,
-          merchantRequestId: session.merchantRequestId,
-          checkoutRequestId: session.checkoutRequestId,
-        };
-      } else {
-        // Payment failed
-        return {
-          success: false,
-          plan: "free",
-          endDate: 0,
-          errorMessage: "Payment cancelled by user or failed",
-        };
-      }
-    } catch (error) {
-      console.error("❌ Error in payment simulation:", error);
-      return {
-        success: false,
-        plan: "free",
-        endDate: 0,
-        errorMessage: "Error processing payment result",
-      };
-    }
+  async simulatePaymentCompletion(
+    success: boolean = true,
+  ): Promise<PaymentResult> {
+    console.warn(
+      "🚫 Payment simulation removed - only real M-Pesa callbacks allowed",
+    );
+    return {
+      success: false,
+      plan: "free",
+      endDate: 0,
+      errorMessage:
+        "Payment simulation disabled - complete actual M-Pesa payment",
+    };
   }
 
   /**
-   * Check for and recover any pending payment sessions on app startup
+   * Check for pending payment sessions (simplified - cleanup only)
    */
   checkForPendingPayments(): {
     hasPending: boolean;
     sessionData?: any;
     checkoutRequestId?: string;
   } {
+    // Check localStorage for any leftover sessions (cleanup only)
     const storedSession = localStorage.getItem("tuma_payment_session");
     if (!storedSession) {
       return { hasPending: false };
@@ -759,34 +725,30 @@ class UnifiedPaymentService {
       const now = Date.now();
       const sessionAge = now - session.timestamp;
 
-      // If session is older than 10 minutes, consider it expired
+      // Clear old sessions automatically
       if (sessionAge > 10 * 60 * 1000) {
-        console.log('🕐 Payment session expired, clearing...');
+        console.log("🧹 Clearing expired localStorage payment session...");
         localStorage.removeItem("tuma_payment_session");
         return { hasPending: false };
       }
 
-      console.log('🔄 Found pending payment session:', {
-        checkoutRequestId: session.checkoutRequestId,
-        plan: session.plan,
-        ageMinutes: Math.round(sessionAge / 60000),
-        userEmail: session.userEmail
-      });
-
+      console.log(
+        "ℹ️ Found localStorage payment session - awaiting Firebase callback",
+      );
       return {
         hasPending: true,
         sessionData: session,
-        checkoutRequestId: session.checkoutRequestId
+        checkoutRequestId: session.checkoutRequestId,
       };
     } catch (error) {
-      console.error('❌ Error parsing payment session:', error);
+      console.error("❌ Error parsing localStorage session:", error);
       localStorage.removeItem("tuma_payment_session");
       return { hasPending: false };
     }
   }
 
   /**
-   * Manually check if a payment was completed (for recovery scenarios)
+   * REMOVED: Manual payment check disabled - only real callbacks
    */
   async manualPaymentCheck(): Promise<{
     success: boolean;
@@ -794,70 +756,30 @@ class UnifiedPaymentService {
     message: string;
     result?: PaymentResult;
   }> {
-    const pendingCheck = this.checkForPendingPayments();
-    
-    if (!pendingCheck.hasPending) {
-      return {
-        success: true,
-        completed: false,
-        message: 'No pending payments found'
-      };
-    }
+    console.log(
+      "🚫 Manual payment check disabled - only M-Pesa callbacks allowed",
+    );
 
-    const { sessionData } = pendingCheck;
-    console.log('🔍 Manually checking payment status for session:', sessionData.checkoutRequestId);
-
-    // Simulate checking if payment was completed
-    // In a real scenario, you might check your database or use simulation
-    const statusResult = await this.simulatePaymentStatusCheck(sessionData.checkoutRequestId);
-    
-    if (statusResult.completed) {
-      console.log('✅ Found completed payment during manual check!');
-      
-      // Process the completion
-      const result = await this.processPaymentCompletion(
-        sessionData.checkoutRequestId,
-        {
-          transactionId: statusResult.transactionId,
-          status: 'completed',
-          result_code: 0
-        }
-      );
-
-      return {
-        success: true,
-        completed: true,
-        message: 'Payment found and processed successfully!',
-        result
-      };
-    } else if (statusResult.failed) {
-      console.log('❌ Payment failed during manual check');
-      localStorage.removeItem("tuma_payment_session");
-      
-      return {
-        success: true,
-        completed: false,
-        message: statusResult.reason || 'Payment failed'
-      };
-    } else {
-      return {
-        success: true,
-        completed: false,
-        message: 'Payment still pending - please wait or try again'
-      };
-    }
+    return {
+      success: true,
+      completed: false,
+      message:
+        "Manual payment checks disabled - payments processed via Firebase Functions callbacks only",
+    };
   }
 
   /**
-   * Resume payment monitoring for recovered sessions
+   * REMOVED: Payment monitoring disabled - Firebase callbacks handle everything
    */
   resumePaymentMonitoring(checkoutRequestId: string): void {
-    console.log('🔄 Resuming payment monitoring for:', checkoutRequestId);
-    this.startPaymentStatusPolling(checkoutRequestId);
+    console.log(
+      "🚫 Payment monitoring disabled - Firebase Functions handle all callbacks",
+    );
   }
 
   /**
-   * Check and process payments for a specific user (used on login)
+   * Check and process payments for a specific user (SECURED)
+   * Only real M-Pesa callbacks can process payments
    */
   async checkPaymentsForUser(userEmail: string): Promise<{
     success: boolean;
@@ -866,93 +788,18 @@ class UnifiedPaymentService {
     message: string;
     result?: PaymentResult;
   }> {
-    console.log('🔍 Checking payments for user:', userEmail);
-    
-    try {
-      // Check if there's a pending payment session
-      const pendingCheck = this.checkForPendingPayments();
-      
-      if (!pendingCheck.hasPending) {
-        return {
-          success: true,
-          found: false,
-          message: 'No pending payments found for user'
-        };
-      }
-      
-      const { sessionData } = pendingCheck;
-      
-      // Verify the session belongs to this user
-      if (sessionData.userEmail !== userEmail) {
-        console.log('⚠️ Pending payment session belongs to different user:', {
-          sessionUser: sessionData.userEmail,
-          currentUser: userEmail
-        });
-        return {
-          success: true,
-          found: false,
-          message: 'No payments found for current user'
-        };
-      }
-      
-      // Check if the payment was completed
-      const statusResult = await this.simulatePaymentStatusCheck(sessionData.checkoutRequestId);
-      
-      if (statusResult.completed) {
-        console.log('✅ Found completed payment for user:', userEmail);
-        
-        // Process the completion
-        await this.processPaymentCompletion(
-          sessionData.checkoutRequestId,
-          {
-            transactionId: statusResult.transactionId,
-            status: 'completed',
-            result_code: 0
-          }
-        );
-        
-        return {
-          success: true,
-          found: true,
-          processed: true,
-          message: `Payment found and processed for ${sessionData.plan} plan`,
-          result: {
-            success: true,
-            plan: sessionData.plan,
-            endDate: Date.now() + (30 * 24 * 60 * 60 * 1000), // 30 days
-            transactionId: statusResult.transactionId
-          }
-        };
-        
-      } else if (statusResult.failed) {
-        console.log('❌ Payment failed for user:', userEmail);
-        localStorage.removeItem("tuma_payment_session");
-        
-        return {
-          success: true,
-          found: true,
-          processed: false,
-          message: statusResult.reason || 'Payment failed'
-        };
-        
-      } else {
-        console.log('⏳ Payment still pending for user:', userEmail);
-        return {
-          success: true,
-          found: true,
-          processed: false,
-          message: 'Payment still pending - will continue monitoring'
-        };
-      }
-      
-    } catch (error) {
-      console.error('❌ Error checking payments for user:', error);
-      return {
-        success: false,
-        found: false,
-        message: 'Error checking payment status'
-      };
-    }
+    console.log("🔍 Checking payments for user:", userEmail);
+
+    // SECURITY: Never auto-process payments on login
+    // Only Firebase Functions callbacks can upgrade users
+    console.log("🛡️ Payment processing via Firebase Functions callbacks only");
+
+    return {
+      success: true,
+      found: false,
+      message:
+        "Payments processed via secure Firebase Functions callbacks only",
+    };
   }
 
   async checkPaymentStatus(): Promise<PaymentResult | null> {
@@ -985,259 +832,347 @@ class UnifiedPaymentService {
   }
 
   /**
-   * Start polling for payment status
+   * REMOVED: Payment status polling disabled
+   * Real M-Pesa callbacks via Firebase Functions handle payment completion
    */
   private startPaymentStatusPolling(checkoutRequestId: string): void {
-    console.log('🔄 Starting payment status polling for:', checkoutRequestId);
-    
-    // Clear any existing polling
-    if (this.pollingInterval) {
-      clearInterval(this.pollingInterval);
-    }
+    console.log(
+      "� Starting payment status polling for checkout:",
+      checkoutRequestId,
+    );
 
-    // Poll every 10 seconds for up to 5 minutes
-    let attempts = 0;
-    const maxAttempts = 30; // 5 minutes = 30 * 10 seconds
-    
-    this.pollingInterval = setInterval(async () => {
-      attempts++;
-      console.log(`🔍 Polling attempt ${attempts}/${maxAttempts} for payment status...`);
-      
+    let pollCount = 0;
+
+    const pollInterval = setInterval(async () => {
+      pollCount++;
       try {
-        const statusResult = await this.checkPaymentStatusFromCallback(checkoutRequestId);
-        
-        if (statusResult.completed) {
-          console.log('✅ Payment completed via polling!', statusResult);
-          
-          // Stop polling
-          if (this.pollingInterval) {
-            clearInterval(this.pollingInterval);
-            this.pollingInterval = null;
+        const status =
+          await this.checkPaymentStatusFromCallback(checkoutRequestId);
+        console.log("📊 Payment poll result:", status);
+
+        if (status.completed) {
+          console.log(
+            "✅ Payment completed successfully after",
+            pollCount,
+            "polls!",
+          );
+          console.log("🎉 Final payment details:", {
+            transactionId: status.transactionId,
+            checkoutRequestId,
+            pollCount,
+          });
+          clearInterval(pollInterval);
+
+          // Notify success - could add callbacks here if needed
+          if (this.onPaymentStatusChange) {
+            console.log("📢 Calling onPaymentStatusChange with success");
+            this.onPaymentStatusChange({
+              success: true,
+              status: "completed",
+              transactionId: status.transactionId,
+              checkoutRequestId,
+            });
+          } else {
+            console.log("⚠️ No onPaymentStatusChange callback registered");
           }
-          
-          // Process the successful payment
-          await this.processPaymentCompletion(checkoutRequestId, statusResult);
-          
-        } else if (statusResult.failed) {
-          console.log('❌ Payment failed via polling:', statusResult);
-          
-          // Stop polling
-          if (this.pollingInterval) {
-            clearInterval(this.pollingInterval);
-            this.pollingInterval = null;
+        } else if (status.failed) {
+          console.log("❌ Payment failed after", pollCount, "polls");
+          console.log("💥 Failure details:", {
+            reason: status.reason,
+            checkoutRequestId,
+            pollCount,
+          });
+          clearInterval(pollInterval);
+
+          // Notify failure
+          if (this.onPaymentStatusChange) {
+            console.log("📢 Calling onPaymentStatusChange with failure");
+            this.onPaymentStatusChange({
+              success: false,
+              status: "failed",
+              reason: status.reason,
+              checkoutRequestId,
+            });
           }
-          
-          // Process the failed payment
-          await this.processPaymentFailure(checkoutRequestId, statusResult.reason || 'Payment failed');
-          
-        } else if (attempts >= maxAttempts) {
-          console.log('⏰ Polling timeout reached');
-          
-          // Stop polling
-          if (this.pollingInterval) {
-            clearInterval(this.pollingInterval);
-            this.pollingInterval = null;
-          }
-          
-          // Process timeout
-          await this.processPaymentFailure(checkoutRequestId, 'Payment timeout - please contact support');
+        } else {
+          console.log(`⏳ Payment still pending... (Poll ${pollCount}/100)`);
         }
-        
       } catch (error) {
-        console.error('❌ Error during polling:', error);
-        
-        if (attempts >= maxAttempts) {
-          // Stop polling on max attempts
-          if (this.pollingInterval) {
-            clearInterval(this.pollingInterval);
-            this.pollingInterval = null;
-          }
-          
-          await this.processPaymentFailure(checkoutRequestId, 'Unable to verify payment status');
-        }
+        console.error(`❌ Error in poll #${pollCount}:`, error);
+        console.error("🔍 Error details:", {
+          message: error instanceof Error ? error.message : "Unknown error",
+          stack: error instanceof Error ? error.stack : error,
+          checkoutRequestId,
+          pollCount,
+        });
       }
-    }, 10000); // Poll every 10 seconds
+    }, 3000); // Poll every 3 seconds
+
+    // Stop polling after 5 minutes (100 polls)
+    setTimeout(() => {
+      clearInterval(pollInterval);
+      console.log(
+        "⏰ Payment polling timeout reached after",
+        pollCount,
+        "polls",
+      );
+      console.log("🔍 Final timeout details:", {
+        checkoutRequestId,
+        totalPolls: pollCount,
+        timeoutMinutes: 5,
+      });
+
+      if (this.onPaymentStatusChange) {
+        console.log("📢 Calling onPaymentStatusChange with timeout");
+        this.onPaymentStatusChange({
+          success: false,
+          status: "timeout",
+          reason: "Payment polling timeout after 5 minutes",
+          checkoutRequestId,
+        });
+      }
+    }, 300000);
   }
 
   /**
-   * Check payment status - Tuma only provides callbacks, so we use simulation for testing
+   * Check Firebase Firestore for real M-Pesa callback completion status
    */
-  private async checkPaymentStatusFromCallback(checkoutRequestId: string): Promise<{
+  private async checkPaymentStatusFromCallback(
+    checkoutRequestId: string,
+  ): Promise<{
     completed: boolean;
     failed: boolean;
     pending: boolean;
     reason?: string;
     transactionId?: string;
   }> {
-    console.log('💡 Tuma doesn\'t provide status API - relying on callbacks and simulation');
-    // Since Tuma only provides callbacks (not status API), we simulate for testing
-    return await this.simulatePaymentStatusCheck(checkoutRequestId);
-  }
+    try {
+      console.log(
+        "🔍 Checking Firebase for payment status:",
+        checkoutRequestId,
+      );
+      console.log("📱 Loading Firebase modules...");
 
-  /**
-   * Simulate payment status check (for testing when API doesn't have status endpoint)
-   * This simulates the exact callback format that Tuma will send
-   */
-  private async simulatePaymentStatusCheck(checkoutRequestId: string): Promise<{
-    completed: boolean;
-    failed: boolean;
-    pending: boolean;
-    reason?: string;
-    transactionId?: string;
-  }> {
-    const storedSession = localStorage.getItem("tuma_payment_session");
-    if (!storedSession) {
-      return { completed: false, failed: true, pending: false, reason: 'Session not found' };
-    }
+      const { initializeApp, getApps, getApp } = await import("firebase/app");
+      const { getFirestore, collection, query, where, getDocs } =
+        await import("firebase/firestore");
 
-    const session = JSON.parse(storedSession);
-    const now = Date.now();
-    const sessionAge = now - session.timestamp;
-    
-    // Simulate payment completion after 30-90 seconds for realistic timing
-    if (sessionAge > 30000) { // 30+ seconds
-      // 85% chance of success, 15% chance of failure for realistic simulation
-      const isSuccess = Math.random() > 0.15;
-      
-      if (isSuccess) {
-        console.log('🎯 Simulating successful M-Pesa payment completion');
+      console.log("🏗️ Getting Firebase app...");
+      let app;
+      try {
+        app = getApp();
+      } catch (error) {
+        console.log("🔧 No Firebase app found, initializing...");
+        const firebaseConfig = await this.getFirebaseConfig();
+        app = initializeApp(firebaseConfig);
+      }
+      const db = getFirestore(app);
+      console.log("✅ Firebase app and db initialized");
+
+      // Query payment sessions for this checkout request
+      console.log(
+        "📝 Creating Firestore query for checkout request:",
+        checkoutRequestId,
+      );
+      const q = query(
+        collection(db, "payment_sessions"),
+        where("checkoutRequestId", "==", checkoutRequestId),
+      );
+
+      console.log("🔎 Executing Firestore query...");
+      const querySnapshot = await getDocs(q);
+
+      console.log("📊 Query results:", {
+        empty: querySnapshot.empty,
+        size: querySnapshot.size,
+        checkoutRequestId,
+      });
+
+      if (querySnapshot.empty) {
+        console.log("📭 No payment session found in Firestore");
+        console.log("⚠️ This could mean:");
+        console.log("   - Session not stored properly");
+        console.log("   - CheckoutRequestId mismatch");
+        console.log(
+          "   - Firebase Functions already processed and deleted session (old behavior)",
+        );
+        console.log("   - Firebase Functions callback completed successfully");
+
+        // For debugging - let's check if there are any sessions at all
+        try {
+          const allSessionsQuery = query(collection(db, "payment_sessions"));
+          const allSessions = await getDocs(allSessionsQuery);
+          console.log(
+            "🔍 Total payment sessions in Firestore:",
+            allSessions.size,
+          );
+
+          if (allSessions.size > 0) {
+            console.log("📋 Available checkoutRequestIds:");
+            allSessions.docs.forEach((doc, index) => {
+              const data = doc.data();
+              console.log(
+                `  ${index + 1}. ${data.checkoutRequestId} (status: ${data.status || "pending"})`,
+              );
+            });
+          }
+        } catch (debugError) {
+          console.error("❌ Debug query failed:", debugError);
+        }
+
+        // If session not found, it might have been processed successfully by Firebase Functions
+        // Check if user was already upgraded by looking for recent payment records
+        try {
+          const paymentsQuery = query(
+            collection(db, "payments"),
+            where("checkoutRequestId", "==", checkoutRequestId),
+          );
+          const paymentDocs = await getDocs(paymentsQuery);
+
+          if (!paymentDocs.empty) {
+            const paymentData = paymentDocs.docs[0].data();
+            console.log(
+              "✅ Found completed payment record - user already upgraded!",
+            );
+            console.log("💳 Payment details:", {
+              status: paymentData.status,
+              transactionId: paymentData.transactionId,
+              plan: paymentData.plan,
+              userEmail: paymentData.userEmail,
+            });
+
+            if (paymentData.status === "completed") {
+              return {
+                completed: true,
+                failed: false,
+                pending: false,
+                transactionId: paymentData.transactionId,
+              };
+            }
+          }
+        } catch (paymentCheckError) {
+          console.error("❌ Payment record check failed:", paymentCheckError);
+        }
+
+        return { completed: false, failed: false, pending: true };
+      }
+
+      // Check the latest session document
+      console.log("📄 Found", querySnapshot.docs.length, "payment sessions");
+      const sessionDoc = querySnapshot.docs[0];
+      const sessionData = sessionDoc.data();
+
+      console.log("📋 Complete payment session data:", {
+        docId: sessionDoc.id,
+        data: sessionData,
+        timestamp: new Date(sessionData.timestamp).toISOString(),
+      });
+
+      // Log all possible status fields for debugging
+      console.log("🔍 Status field analysis:", {
+        "sessionData.status": sessionData.status,
+        "sessionData.paymentCompleted": sessionData.paymentCompleted,
+        "sessionData.paymentFailed": sessionData.paymentFailed,
+        "sessionData.transactionId": sessionData.transactionId,
+        "sessionData.M_PesaReceiptNumber": sessionData.M_PesaReceiptNumber,
+        "sessionData.mpesa_receipt_number": sessionData.mpesa_receipt_number,
+        "sessionData.failureReason": sessionData.failureReason,
+      });
+
+      // Check if payment was completed by Firebase Functions callback
+      if (sessionData.status === "completed" || sessionData.paymentCompleted) {
+        console.log("🎉 PAYMENT COMPLETED DETECTED!");
+        console.log("✅ Completion details:", {
+          status: sessionData.status,
+          paymentCompleted: sessionData.paymentCompleted,
+          transactionId:
+            sessionData.transactionId ||
+            sessionData.M_PesaReceiptNumber ||
+            sessionData.mpesa_receipt_number,
+        });
         return {
           completed: true,
           failed: false,
           pending: false,
-          transactionId: `MPESA${Date.now()}`
+          transactionId:
+            sessionData.transactionId ||
+            sessionData.M_PesaReceiptNumber ||
+            sessionData.mpesa_receipt_number,
         };
-      } else {
-        console.log('💔 Simulating M-Pesa payment failure');
-        const failureReasons = [
-          'Invalid M-Pesa PIN entered',
-          'Insufficient funds in M-Pesa account', 
-          'Transaction cancelled by user',
-          'M-Pesa service timeout'
-        ];
-        const randomReason = failureReasons[Math.floor(Math.random() * failureReasons.length)];
-        
+      }
+
+      // Check if payment failed
+      if (sessionData.status === "failed" || sessionData.paymentFailed) {
+        console.log("💥 PAYMENT FAILURE DETECTED!");
+        console.log("❌ Failure details:", {
+          status: sessionData.status,
+          paymentFailed: sessionData.paymentFailed,
+          reason: sessionData.failureReason,
+        });
         return {
           completed: false,
           failed: true,
           pending: false,
-          reason: randomReason
+          reason: sessionData.failureReason || "Payment failed",
         };
       }
-    }
-    
-    // Still pending - show realistic progress messages
-    if (sessionAge > 15000) {
-      console.log('⏳ Payment still pending - user may still be entering PIN...');
-    } else {
-      console.log('📱 STK push sent - waiting for user response on phone...');
-    }
-    
-    return { completed: false, failed: false, pending: true };
-  }
 
-  /**
-   * Process payment completion
-   */
-  private async processPaymentCompletion(checkoutRequestId: string, statusResult: any): Promise<void> {
-    const storedSession = localStorage.getItem("tuma_payment_session");
-    if (!storedSession) {
-      console.error('❌ No stored session found for completed payment');
-      return;
-    }
-
-    try {
-      const session = JSON.parse(storedSession);
-      
-      // Update user in database
-      const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
-      const subscriptionEndDate = Date.now() + thirtyDaysInMs;
-      
-      console.log('🔍 Processing completed payment for user:', session.userEmail);
-      const currentUser = await getUserByEmail(session.userEmail);
-      
-      if (currentUser) {
-        const updatedUser = {
-          ...currentUser,
-          plan: session.plan as UserPlan,
-          subscriptionEndDate: subscriptionEndDate,
-        };
-        
-        await updateUser(updatedUser);
-        console.log('✅ User automatically updated after payment completion!', {
-          userId: currentUser.id,
-          plan: session.plan,
-          transactionId: statusResult.transactionId
-        });
-        
-        // Clear the session
-        localStorage.removeItem("tuma_payment_session");
-        
-        // Trigger callback if registered
-        const callback = this.paymentCallbacks.get(checkoutRequestId);
-        if (callback) {
-          callback({
-            success: true,
-            plan: session.plan,
-            endDate: subscriptionEndDate,
-            transactionId: statusResult.transactionId
-          });
-          this.paymentCallbacks.delete(checkoutRequestId);
-        }
-        
-        // Dispatch custom event for UI updates
-        window.dispatchEvent(new CustomEvent('paymentCompleted', {
-          detail: {
-            success: true,
-            plan: session.plan,
-            endDate: subscriptionEndDate,
-            transactionId: statusResult.transactionId
-          }
-        }));
-        
-      } else {
-        console.error('❌ User not found for completed payment:', session.userEmail);
-      }
-      
+      // Still pending
+      console.log("⏳ Payment still pending in Firebase");
+      console.log(
+        "📊 Session age:",
+        Math.floor((Date.now() - sessionData.timestamp) / 1000),
+        "seconds",
+      );
+      return { completed: false, failed: false, pending: true };
     } catch (error) {
-      console.error('❌ Error processing payment completion:', error);
+      console.error("❌ Error checking Firebase payment status:", error);
+      console.error("🔍 Detailed error info:", {
+        message: error instanceof Error ? error.message : "Unknown error",
+        stack: error instanceof Error ? error.stack : error,
+        checkoutRequestId,
+        timestamp: new Date().toISOString(),
+      });
+      // Return pending on error, don't fail the polling
+      return { completed: false, failed: false, pending: true };
     }
   }
 
   /**
-   * Process payment failure
+   * REMOVED: Payment processing functions disabled
+   * Firebase Functions callbacks handle all payment processing
    */
-  private async processPaymentFailure(checkoutRequestId: string, reason: string): Promise<void> {
-    console.log('💔 Processing payment failure:', reason);
-    
-    // Clear the session
-    localStorage.removeItem("tuma_payment_session");
-    
-    // Trigger callback if registered
-    const callback = this.paymentCallbacks.get(checkoutRequestId);
-    if (callback) {
-      callback({
-        success: false,
-        plan: 'free',
-        endDate: 0,
-        errorMessage: reason
-      });
-      this.paymentCallbacks.delete(checkoutRequestId);
-    }
-    
-    // Dispatch custom event for UI updates
-    window.dispatchEvent(new CustomEvent('paymentFailed', {
-      detail: {
-        success: false,
-        errorMessage: reason
-      }
-    }));
+  private async processPaymentCompletion(
+    checkoutRequestId: string,
+    statusResult: any,
+  ): Promise<void> {
+    console.log(
+      "🚫 Payment processing disabled - handled by Firebase Functions",
+    );
+    // All payment processing is now handled by Firebase Functions callbacks
+  }
+
+  /**
+   * REMOVED: Payment failure processing disabled
+   * Firebase Functions callbacks handle all payment processing
+   */
+  private async processPaymentFailure(
+    checkoutRequestId: string,
+    reason: string,
+  ): Promise<void> {
+    console.log(
+      "🚫 Payment failure processing disabled - handled by Firebase Functions",
+    );
+    // All payment processing is now handled by Firebase Functions callbacks
   }
 
   /**
    * Register a callback for payment completion
    */
-  registerPaymentCallback(checkoutRequestId: string, callback: (result: PaymentResult) => void): void {
+  registerPaymentCallback(
+    checkoutRequestId: string,
+    callback: (result: PaymentResult) => void,
+  ): void {
     this.paymentCallbacks.set(checkoutRequestId, callback);
   }
 
@@ -1248,37 +1183,101 @@ class UnifiedPaymentService {
     if (this.pollingInterval) {
       clearInterval(this.pollingInterval);
       this.pollingInterval = null;
-      console.log('🛑 Payment polling stopped');
+      console.log("🛑 Payment polling stopped");
+    }
+  }
+
+  /**
+   * Debug function to check what payment sessions exist in Firestore
+   */
+  async debugFirestorePaymentSessions(): Promise<{
+    success: boolean;
+    total: number;
+    sessions: any[];
+    error?: string;
+  }> {
+    try {
+      console.log("🧪 DEBUG: Fetching all payment sessions from Firestore...");
+
+      const { initializeApp, getApps, getApp } = await import("firebase/app");
+      const { getFirestore, collection, getDocs } =
+        await import("firebase/firestore");
+
+      const app = getApp();
+      const db = getFirestore(app);
+
+      const querySnapshot = await getDocs(collection(db, "payment_sessions"));
+
+      const sessions = querySnapshot.docs.map((doc) => ({
+        id: doc.id,
+        data: doc.data(),
+        age:
+          Math.floor((Date.now() - doc.data().timestamp) / 1000) + " seconds",
+      }));
+
+      console.log(
+        "🔍 Found",
+        sessions.length,
+        "payment sessions in Firestore:",
+      );
+      sessions.forEach((session, index) => {
+        console.log(`Session ${index + 1}:`, {
+          id: session.id,
+          checkoutRequestId: session.data.checkoutRequestId,
+          status: session.data.status,
+          userEmail: session.data.userEmail,
+          plan: session.data.plan,
+          age: session.age,
+          paymentCompleted: session.data.paymentCompleted,
+          paymentFailed: session.data.paymentFailed,
+        });
+      });
+
+      return {
+        success: true,
+        total: sessions.length,
+        sessions,
+      };
+    } catch (error) {
+      console.error("❌ Error fetching Firestore sessions:", error);
+      return {
+        success: false,
+        total: 0,
+        sessions: [],
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
     }
   }
 
   /**
    * Test database connectivity and user lookup (debugging helper)
    */
-  async testDatabaseConnection(userEmail: string): Promise<{ success: boolean; message: string; user?: any }> {
+  async testDatabaseConnection(
+    userEmail: string,
+  ): Promise<{ success: boolean; message: string; user?: any }> {
     try {
-      console.log('🧪 Testing database connection with email:', userEmail);
-      
+      console.log("🧪 Testing database connection with email:", userEmail);
+
       const user = await getUserByEmail(userEmail);
-      console.log('🧪 Database lookup result:', user);
-      
+      console.log("🧪 Database lookup result:", user);
+
       if (user) {
         return {
           success: true,
           message: `User found: ${user.username} (${user.email}) - Plan: ${user.plan}`,
-          user: user
+          user: user,
         };
       } else {
         return {
           success: false,
-          message: `No user found with email: ${userEmail}`
+          message: `No user found with email: ${userEmail}`,
         };
       }
     } catch (error) {
-      console.error('🧪 Database test failed:', error);
+      console.error("🧪 Database test failed:", error);
       return {
         success: false,
-        message: `Database error: ${error instanceof Error ? error.message : 'Unknown error'}`
+        message: `Database error: ${error instanceof Error ? error.message : "Unknown error"}`,
       };
     }
   }
@@ -1295,6 +1294,72 @@ class UnifiedPaymentService {
     } else {
       return `$${info.amount}.00`;
     }
+  }
+
+  /**
+   * DEBUGGING HELPER: Check for user plan updates in database
+   * This helps verify if Firebase Functions successfully upgraded the user
+   */
+  async checkUserPlanStatus(userEmail: string): Promise<{
+    success: boolean;
+    currentPlan: string;
+    subscriptionEndDate?: number;
+    lastPayment?: any;
+    message: string;
+  }> {
+    try {
+      console.log("🔍 Checking current user plan status for:", userEmail);
+
+      const user = await getUserByEmail(userEmail);
+
+      if (!user) {
+        return {
+          success: false,
+          currentPlan: "free",
+          message: "User not found",
+        };
+      }
+
+      console.log("👤 Current user data:", {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        plan: user.plan,
+        subscriptionEndDate: user.subscriptionEndDate
+          ? new Date(user.subscriptionEndDate).toISOString()
+          : "none",
+        lastPaymentTimestamp: user.lastPayment?.timestamp || "none",
+      });
+
+      return {
+        success: true,
+        currentPlan: user.plan || "free",
+        subscriptionEndDate: user.subscriptionEndDate,
+        lastPayment: user.lastPayment,
+        message: `User has ${user.plan || "free"} plan`,
+      };
+    } catch (error) {
+      console.error("❌ Error checking user plan:", error);
+      return {
+        success: false,
+        currentPlan: "free",
+        message: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
+      };
+    }
+  }
+
+  /**
+   * Get Firebase configuration from environment variables
+   */
+  private async getFirebaseConfig(): Promise<any> {
+    return {
+      apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+      storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+      messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+      appId: import.meta.env.VITE_FIREBASE_APP_ID,
+    };
   }
 }
 
