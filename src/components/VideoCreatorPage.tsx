@@ -143,7 +143,7 @@ const VideoCreatorPage: React.FC<VideoCreatorPageProps> = ({
       console.log("📞 Calling generateVideoWithKieAI with params:", {
         prompt,
         options: {
-          aspectRatio: "16:9",
+          aspectRatio: "landscape",
           duration: 10,
           mode: "std",
           sound: true,
@@ -153,7 +153,7 @@ const VideoCreatorPage: React.FC<VideoCreatorPageProps> = ({
       const url = await generateVideoWithKieAI(
         prompt,
         {
-          aspectRatio: "16:9",
+          aspectRatio: "landscape",
           duration: 10,
           mode: "std",
           sound: true,
@@ -189,6 +189,11 @@ const VideoCreatorPage: React.FC<VideoCreatorPageProps> = ({
       } else if (error.message?.includes("timeout")) {
         console.log("⏰ Timeout error detected");
         setStatus("⏰ Video generation timed out. Please try again.");
+      } else if (error.message?.includes("internal error")) {
+        console.log("🔧 Server error detected");
+        setStatus(
+          "🔧 Server temporarily unavailable. We're handling this automatically - please try again in a few moments.",
+        );
       } else {
         console.log("❓ Unknown error detected");
         setStatus(
@@ -255,10 +260,32 @@ const VideoCreatorPage: React.FC<VideoCreatorPageProps> = ({
                   {isGenerating ? "Generating..." : "Generate Video"}
                 </button>
 
-                {status && isGenerating && (
-                  <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-xl">
-                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                {status && (
+                  <div
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl ${
+                      status.startsWith("✅")
+                        ? "bg-emerald-500/10"
+                        : status.startsWith("❌") || status.startsWith("⚠️")
+                          ? "bg-red-500/10"
+                          : status.startsWith("🔧")
+                            ? "bg-orange-500/10"
+                            : "bg-white/5"
+                    }`}
+                  >
+                    {isGenerating && (
+                      <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                    )}
+                    <span
+                      className={`text-[10px] font-bold uppercase tracking-wider ${
+                        status.startsWith("✅")
+                          ? "text-emerald-400"
+                          : status.startsWith("❌") || status.startsWith("⚠️")
+                            ? "text-red-400"
+                            : status.startsWith("🔧")
+                              ? "text-orange-400"
+                              : "text-gray-400"
+                      }`}
+                    >
                       {status}
                     </span>
                   </div>

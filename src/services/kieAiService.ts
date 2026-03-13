@@ -7,6 +7,7 @@ const KIE_AI_API_KEY =
 const KIE_AI_BASE_URL = "https://api.kie.ai/api/v1";
 
 const AVAILABLE_VIDEO_MODELS = {
+  "sora-2": "sora-2-text-to-video",
   "kling-3.0": "kling-3.0/video",
   "kling-2.6": "kling-2.6/text-to-video",
   "seedance-1.5-pro": "bytedance/seedance-1-5-pro",
@@ -15,7 +16,7 @@ const AVAILABLE_VIDEO_MODELS = {
 
 export interface KieVideoOptions {
   prompt: string;
-  aspectRatio?: "16:9" | "9:16" | "1:1";
+  aspectRatio?: "landscape" | "portrait" ;
   duration?: number; // seconds (3-15)
   model?: keyof typeof AVAILABLE_VIDEO_MODELS;
   mode?: "std" | "pro"; // generation quality mode
@@ -40,9 +41,9 @@ export async function generateVideoWithKieAI(
 ): Promise<string> {
   try {
     const {
-      aspectRatio = "16:9",
+      aspectRatio = "landscape",
       duration = 10,
-      model = "kling-3.0",
+      model = "sora-2",
       mode = "std",
       sound = true,
     } = options;
@@ -104,7 +105,7 @@ async function pollVideoGeneration(
   taskId: string,
   onProgress?: (message: string) => void,
 ): Promise<string> {
-  const maxAttempts = 60; // 5 minutes max (5s intervals)
+  const maxAttempts = 30; // 2.5 minutes max (5s intervals)
   let attempts = 0;
 
   while (attempts < maxAttempts) {
@@ -175,7 +176,7 @@ async function pollVideoGeneration(
     attempts++;
   }
 
-  throw new Error("Video generation timed out after 5 minutes");
+  throw new Error("Video generation timed out after 2.5 minutes");
 }
 
 /**
