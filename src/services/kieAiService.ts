@@ -105,7 +105,7 @@ async function pollVideoGeneration(
   taskId: string,
   onProgress?: (message: string) => void,
 ): Promise<string> {
-  const maxAttempts = 30; // 2.5 minutes max (5s intervals)
+  const maxAttempts = 60; // 5 minutes max (5s intervals)
   let attempts = 0;
 
   while (attempts < maxAttempts) {
@@ -176,7 +176,7 @@ async function pollVideoGeneration(
     attempts++;
   }
 
-  throw new Error("Video generation timed out after 2.5 minutes");
+  throw new Error("Video generation timed out after 5 minutes");
 }
 
 /**
